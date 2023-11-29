@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>シェアサイクルマップ（2023年11月）+傾斜量図</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <!-- MapLibre -->
+    <script src='https://unpkg.com/maplibre-gl@3.4.1/dist/maplibre-gl.js'></script>
+    <link href='https://unpkg.com/maplibre-gl@3.4.1/dist/maplibre-gl.css' rel='stylesheet' />
+    <script src="https://unpkg.com/pmtiles@2.10.0/dist/index.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <style>
+        .map-overlay {
+            font: 12px/20px 'Helvetica Neue', Arial, Helvetica, sans-serif;
+            position: absolute;
+            width: auto;
+            top: 0;
+            left: 0;
+            padding: 10px;
+        }
+
+        .map-overlay .map-overlay-inner {
+            background-color: #fff;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+            padding: 10px;
+            margin-bottom: 5px;
+        }
+
+        .map-overlay h3 {
+            line-height: 12px;
+            display: block;
+            margin: 0 0 10px;
+        }
+
+        .map-overlay .legend .bar {
+            height: 10px;
+            width: 100%;
+            background: linear-gradient(to right, #CCFFCC, #00ff00);
+        }
+
+        .map-overlay input {
+            background-color: transparent;
+            display: inline-block;
+            width: 100%;
+            position: relative;
+            margin: 0;
+            cursor: ew-resize;
+        }
+
+        .maplibregl-popup .maplibregl-popup-content {
+            padding: 8px 10px;
+            font: 12px/14px Arial, Helvetica, sans-serif;
+            color: black;
+            background: white;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.9);
+            border-radius: 5px;
+            width: 220px;
+            height: 100px;
+            /*overflow: scroll;*/
+        }
+
+        .label-large {
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .legend {
+            background-color: #fff;
+            border-radius: 3px;
+            bottom: 50px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10);
+            font: 12px/20px 'Helvetica Neue', Arial, Helvetica, sans-serif;
+            padding: 10px;
+            position: absolute;
+            right: 10px;
+            z-index: 1;
+            line-height: 16px;
+            height: 60px;
+        }
+
+        .legend h4 {
+            margin: 0 0 10px;
+        }
+
+        .legend div span {
+            border-radius: 50%;
+            display: inline-block;
+            height: 15px;
+            margin-right: 10px;
+            width: 15px;
+            color: orangered
+        }
+
+        .circle {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .square {
+            width: 10px;
+            height: 10px;
+        }
+    </style>
+
+    <div id="map"></div>
+    <div id='county-legend' class='legend'>
+        <h4>シェアサイクル</h4>
+        <div class="circle" style='background-color: rgb(249, 202, 34);display: inline-block;'></div>
+        <span style="display: inline-block; margin-left: 5px;">ハローサイクリング</span><br>
+        <div class="circle" style='background-color: rgb(208, 14, 49);display: inline-block;'></div>
+        <span style="display: inline-block; margin-left: 5px;">ドコモ・バイクシェア</span><br>
+        <!--
+        <div class="square" style='background-color: rgba(255, 204, 255, 0.5);display: inline-block;'></div>
+        <span style="display: inline-block; margin-left: 5px;">人口集中地区（2020年）</span>
+        -->
+    </div>
+
+    <script type="module">
+        // Terrain-RGB形式への変換モジュール
+        import { makeNumPngProtocol } from './numPngProtocol.js'
+
+        // addProtocolの設定
+        let protocol = new pmtiles.Protocol();
+        maplibregl.addProtocol("pmtiles", protocol.tile);
+
+        var map = new maplibregl.Map({
+            container: 'map',
+            style: './std.json',
+            center: [139.7719, 35.6527], // 中心座標
+            zoom: 10, // ズームレベル
+            pitch: 0, // 傾き
+            maxPitch: 85,
+            hash: true,
+            // 既存Attributionを非表示
+            attributionControl: false
+        })
+
+        // ズーム・回転
+        map.addControl(new maplibregl.NavigationControl());
+
+        // フルスクリーンモードのオンオフ
+        map.addControl(new maplibregl.FullscreenControl());
+
+        // 現在位置表示
+        map.addControl(new maplibregl.GeolocateControl({
+            positionOptions: {
+                enableHighAccuracy: false
+            },
+            fitBoundsOptions: { maxZoom: 18 },
+            trackUserLocation: true,
+            showUserLocation: true
+        }));
+
+        // スケール表示
+        map.addControl(new maplibregl.ScaleControl({
+            maxWidth: 200,
+            unit: 'metric'
+        }));
+
+        // Attributionを折りたたみ表示
+        map.addControl(new maplibregl.AttributionControl({
+            compact: true,
+            customAttribution: '（<a href="https://twitter.com/syanseto" target="_blank">Twitter</a> | <a href="https://github.com/shi-works/bikeshare-map-on-maplibre-gl-js" target="_blank">Github</a>） '
+        }));
+
+        // 3D地形コントロール
+        map.addControl(
+            new maplibregl.TerrainControl({
+                source: 'aist-dem',
+                exaggeration: 1 // 標高を強調する倍率
+            })
+        );
+
+        map.on('load', () => {
+            // 産総研 シームレス標高タイルソース
+            map.addSource("aist-dem", {
+                type: 'raster-dem',
+                tiles: [
+                    'numpng://tiles.gsj.jp/tiles/elev/mixed/{z}/{y}/{x}.png',
+                ],
+                attribution: '<a href="https://tiles.gsj.jp/tiles/elev/tiles.html" target="_blank">産業技術総合研究所 シームレス標高タイル(統合DEM)</a>',
+                tileSize: 256
+            });
+
+            // 産総研 シームレス標高タイルセット
+            map.setTerrain({ 'source': 'aist-dem', 'exaggeration': 1 });
+
+            /*
+            // 人口集中地区ベクトルタイル
+            map.addSource("did", {
+                type: "vector",
+                url: "pmtiles://https://xs489works.xsrv.jp/pmtiles-data/r2DID/2020_did_ddsw_01-47_JGD2011.pmtiles",
+                attribution: '<a href="https://www.e-stat.go.jp/gis">政府統計の総合窓口[e-Stat] 人口集中地区（2020年）</a>'
+            });
+
+            // 人口集中地区ポリゴンレイヤ
+            map.addLayer({
+                "id": "did-polygon",
+                "source": "did",
+                "source-layer": "2020_did_ddsw_0147_JGD2011fgb",
+                "type": "fill",
+                "paint": {
+                    'fill-color': 'rgb(255, 204, 255)',
+                    'fill-opacity': 0.5
+                }
+            });
+            */
+
+            // ドコモ・バイクシェア
+            map.addSource('docomo-cycle', {
+                'type': 'geojson',
+                'data': './data/docomo-cycle_station.geojson',
+                attribution: '<a href="https://docomo-cycle.jp/">株式会社ドコモ・バイクシェア</a>'
+            });
+
+            // ドコモ・バイクシェアポイント
+            map.addLayer({
+                'id': 'docomo-cycle-points',
+                'type': 'circle',
+                'source': 'docomo-cycle',
+                'minzoom': 9.5,
+                'maxzoom': 23,
+                'paint': {
+                    'circle-color': 'rgba(208, 14, 49, 1)',
+                    'circle-radius': 4,
+                    'circle-opacity': 1,
+                    'circle-stroke-width': 1,
+                    'circle-stroke-color': '#000000'
+                }
+            });
+
+            // ドコモ・バイクシェアヒートマップ
+            map.addLayer({
+                "id": "docomo-cycle-heatmap",
+                "type": "heatmap",
+                'source': 'docomo-cycle',
+                'minzoom': 0,
+                'maxzoom': 9.5,
+                "paint": {
+                    "heatmap-color": [
+                        "interpolate",
+                        [
+                            "linear"
+                        ],
+                        [
+                            "heatmap-density"
+                        ],
+                        0,
+                        "rgba(255, 255, 255, 0)",
+                        1,
+                        "rgba(208, 14, 49, 0.5)"
+                    ],
+                    "heatmap-radius": [
+                        "interpolate",
+                        [
+                            "exponential",
+                            2
+                        ],
+                        [
+                            "zoom"
+                        ],
+                        2,
+                        8,
+                        9,
+                        20
+                    ]
+                }
+            });
+
+            // HELLOCYCLING
+            map.addSource('hellocycling', {
+                'type': 'geojson',
+                'data': './data/hellocycling_station.geojson',
+                attribution: '<a href="https://ckan.odpt.org/dataset/c_bikeshare_gbfs-openstreet">OpenStreet株式会社 / 公共交通オープンデータ協議会</a>'
+            });
+
+            // HELLOCYCLINGポイント
+            map.addLayer({
+                'id': 'hellocycling-points',
+                'type': 'circle',
+                'source': 'hellocycling',
+                'minzoom': 9.5,
+                'maxzoom': 23,
+                'paint': {
+                    'circle-color': 'rgba(249, 202, 34, 1)',
+                    'circle-radius': 4,
+                    'circle-opacity': 1,
+                    'circle-stroke-width': 1,
+                    'circle-stroke-color': '#000000'
+                }
+            });
+
+            // HELLOCYCLINGヒートマップ
+            map.addLayer({
+                "id": "hellocycling-heatmap",
+                "type": "heatmap",
+                'source': 'hellocycling',
+                'minzoom': 0,
+                'maxzoom': 9.5,
+                "paint": {
+                    "heatmap-color": [
+                        "interpolate",
+                        [
+                            "linear"
+                        ],
+                        [
+                            "heatmap-density"
+                        ],
+                        0,
+                        "rgba(255, 255, 255, 0)",
+                        1,
+                        "rgba(249, 202, 34, 0.5)"
+                    ],
+                    "heatmap-radius": [
+                        "interpolate",
+                        [
+                            "exponential",
+                            2
+                        ],
+                        [
+                            "zoom"
+                        ],
+                        2,
+                        8,
+                        9,
+                        20
+                    ]
+                }
+            });
+
+        });
+
+        // HELLOCYCLINGポップアップ表示
+        map.on('click', 'hellocycling-points', (e) => {
+            var lng = e.features[0].properties['lon'];
+            var lat = e.features[0].properties['lat'];
+            var name = e.features[0].properties['name'];
+            var address = e.features[0].properties['address'];
+            var rental_uris_web = e.features[0].properties['rental_uris.web'];
+
+            new maplibregl.Popup()
+                .setLngLat(e.lngLat)
+                .setHTML(
+                    '<div><strong><span style="color: #CB9800; font-size: 1.2em;">ハローサイクリング</span></strong></div>' +
+                    '<div><strong>名称: <span style="color: #000000; font-size: 1.2em;">' + name + '</span></strong></div>' +
+                    '<div>住所: ' + address + '</div>' +
+                    '<div><a href="' + rental_uris_web + '" target="_blank">レンタルWebサイト</a></div>' +
+                    '<div><a href="https://www.google.com/maps?q=' + lat + ',' + lng + '&hl=ja" target="_blank">🌎Google Maps</a></div>' +
+                    '<div><a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + lat + ',' + lng + '&hl=ja" target="_blank">📷Street View</a></div>'
+                )
+                .addTo(map);
+        });
+
+        // ドコモ・バイクシェアポップアップ表示
+        map.on('click', 'docomo-cycle-points', (e) => {
+            var lng = e.features[0].properties['lon'];
+            var lat = e.features[0].properties['lat'];
+            var name = e.features[0].properties['name'];
+
+            new maplibregl.Popup()
+                .setLngLat(e.lngLat)
+                .setHTML(
+                    '<div><strong><span style="color: #D00E31; font-size: 1.2em;">ドコモ・バイクシェア</span></strong></div>' +
+                    '<div><strong>名称: <span style="color: #000000; font-size: 1.2em;">' + name + '</span></strong></div>' +
+                    '<div><a href="https://www.google.com/maps?q=' + lat + ',' + lng + '&hl=ja" target="_blank">🌎Google Maps</a></div>' +
+                    '<div><a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + lat + ',' + lng + '&hl=ja" target="_blank">📷Street View</a></div>'
+                )
+                .addTo(map);
+        });
+
+        // addProtocolの設定
+        maplibregl.addProtocol('numpng', makeNumPngProtocol());
+
+    </script>
+
+</body>
+
+</html>
